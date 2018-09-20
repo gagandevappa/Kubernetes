@@ -1,0 +1,158 @@
+https://medium.com/@pattaravadeeluamsomboon/login-facebook-with-robot-framework-python-ad5d14f8300e
+
+
+Kubernetes master:
+-------------------
+kubeadm init --apiserver-advertise-address $(hostname -i)
+kubectl apply -n kube-system -f  "https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 |tr -d '\n')"
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/website/master/content/cn/docs/user-guide/nginx-app.yaml
+
+
+kubeadm join --token d4df93.0d9afc9e85d4535f 192.168.0.8:6443 --discovery-token-ca-cert-hash sha256:cf95ef2404c62d137e876b1a2d25795cf72464ca5634672c1febfd41770265bb
+
+master $ kubectl cluster-info
+Kubernetes master is running at https://172.17.0.18:6443
+KubeDNS is running at https://172.17.0.18:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+
+
+master $ cat redis-master-controller.yaml
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: redis-master
+  labels:
+    name: redis-master
+spec:
+  replicas: 1
+  selector:
+    name: redis-master
+  template:
+    metadata:
+      labels:
+        name: redis-master
+    spec:
+      containers:
+      - name: master
+        image: redis:3.0.7-alpine
+        ports:
+        - containerPort: 6379
+
+master $ cat redis-master-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  labels:
+    name: redis-master
+spec:
+  ports:
+    # the port that this service should serve on
+  - port: 6379
+    targetPort: 6379
+  selector:
+    name: redis-master
+	
+	
+master $ cat redis-slave-controller.yaml
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: redis-slave
+  labels:
+    name: redis-slave
+spec:
+  replicas: 2
+  selector:
+    name: redis-slave
+  template:
+    metadata:
+      labels:
+        name: redis-slave
+    spec:
+      containers:
+      - name: worker
+        image: gcr.io/google_samples/gb-redisslave:v1
+        env:
+        - name: GET_HOSTS_FROM
+          value: dns
+          # If your cluster config does not include a dns service, then to
+          # instead access an environment variable to find the master
+          # service's host, comment out the 'value: dns' line above, and
+          # uncomment the line below.
+          # value: env
+        ports:
+        - containerPort: 6379
+master $ kubectl get pods
+NAME                 READY     STATUS    RESTARTS   AGE
+redis-master-fzrdf   1/1       Running   0          2m
+master $ kubectl get service
+NAME           TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE
+kubernetes     ClusterIP   10.96.0.1      <none>        443/TCP    32m
+redis-master   ClusterIP   10.101.77.21   <none>        6379/TCP   2m
+master $ kubectl get rc
+NAME           DESIRED   CURRENT   READY     AGE
+redis-master   1         1         1         2m
+master $
+
+master $ cat redis-slave-controller.yaml
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: redis-slave
+  labels:
+    name: redis-slave
+spec:
+  replicas: 2
+  selector:
+    name: redis-slave
+  template:
+    metadata:
+      labels:
+        name: redis-slave
+    spec:
+      containers:
+      - name: worker
+        image: gcr.io/google_samples/gb-redisslave:v1
+        env:
+        - name: GET_HOSTS_FROM
+          value: dns
+          # If your cluster config does not include a dns service, then to
+          # instead access an environment variable to find the master
+          # service's host, comment out the 'value: dns' line above, and
+          # uncomment the line below.
+          # value: env
+        ports:
+        - containerPort: 6379
+		
+
+master $ cat clusterip.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp1-clusterip-svc
+  labels:
+    app: webapp1-clusterip
+spec:
+  ports:
+  - port: 80
+  selector:
+    app: webapp1-clusterip
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: webapp1-clusterip-deployment
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: webapp1-clusterip
+    spec:
+      containers:
+      - name: webapp1-clusterip-pod
+        image: katacoda/docker-http-server:latest
+        ports:
+        - containerPort: 80
+---
